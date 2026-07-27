@@ -213,7 +213,7 @@ def get_item_detail(item, doc=None, warehouse=None, price_list=None, company=Non
 				"status": "Active",  # Only available serial numbers
 				"warehouse": warehouse,  # From specified warehouse only
 			},
-			fields=["name as serial_no"],
+			fields=["name as serial_no", "mrp"],
 		)
 
 	item["selling_price_list"] = price_list
@@ -331,6 +331,24 @@ def get_item_detail(item, doc=None, warehouse=None, price_list=None, company=Non
 	res["item_uoms"] = uoms
 
 	return res
+
+
+@frappe.whitelist()
+def get_serial_numbers(item_code, warehouse, status="Active"):
+	"""
+	Return active serial numbers for an item including the MRP custom field.
+	frappe.client.get_list strips custom fields, so this whitelisted endpoint
+	uses db.get_all which returns them correctly.
+	"""
+	if not item_code or not warehouse:
+		return []
+
+	return frappe.db.get_all(
+		"Serial No",
+		filters={"item_code": item_code, "warehouse": warehouse, "status": status},
+		fields=["name as serial_no", "warehouse", "mrp"],
+		order_by="name asc",
+	)
 
 
 @frappe.whitelist()
@@ -460,6 +478,12 @@ def search_by_barcode(barcode, pos_profile):
 		if found_serial_no and item_doc.has_serial_no:
 			item_details["serial_no"] = found_serial_no
 			item_details["qty"] = 1  # Serial items are quantity 1
+			# Override price with MRP from this specific serial if set
+			serial_mrp = frappe.db.get_value("Serial No", found_serial_no, "mrp")
+			if serial_mrp and serial_mrp > 0:
+				item_details["mrp"] = serial_mrp
+				item_details["price_list_rate"] = serial_mrp
+				item_details["rate"] = serial_mrp
 
 		return item_details
 	except Exception as e:
